@@ -183,13 +183,13 @@ Transform.mixin(AjaxLogger), AjaxLogger.prototype.write = function(e, t, n) {
         var t, n = [], r, i = e.url;
         if (e.cache.length == 0) return e.init();
         for (t = 0; t < e.cache.length; t++) try {
-            n.push(JSON.stringify(e.cache[t]));
+            e.json ? n.push(e.cache[t]) : n.push(JSON.stringify(e.cache[t]));
         } catch (s) {}
-        e.jQuery.isEmptyObject(e.extras) && !e.json ? (r = n.join("\n"), i = e.url + "?client_id=" + cid) : e.extras ? r = JSON.stringify(e.jQuery.extend({
+        e.jQuery.isEmptyObject(e.extras) && !e.json ? (r = n.join("\n"), i = e.url + "?client_id=" + cid) : e.jQuery.isEmptyObject(e.extras) ? r = JSON.stringify({
             logs: n
-        }, e.extras)) : r = JSON.stringify({
+        }) : r = JSON.stringify(e.jQuery.extend({
             logs: n
-        }), e.jQuery.ajax(i, {
+        }, e.extras)), e.jQuery.ajax(i, {
             type: "POST",
             cache: !1,
             processData: !1,
