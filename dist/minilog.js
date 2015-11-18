@@ -3,44 +3,352 @@ var r=function(){var e="function"==typeof require&&require,r=function(i,o,u){o||
 r.m[0] = {
 "microee": {"c":2,"m":"index.js"},
 "lib/web/index.js": function(module, exports, require){
-var e=require("../common/minilog.js"),t=e.enable,n=e.disable,r=typeof navigator!="undefined"&&/chrome/i.test(navigator.userAgent),i=require("./console.js");e.defaultBackend=r?i.minilog:i;if(typeof window!="undefined"){try{e.enable(JSON.parse(window.localStorage.minilogSettings))}catch(s){}if(window.location&&window.location.search){var o=RegExp("[?&]minilog=([^&]*)").exec(window.location.search);o&&e.enable(decodeURIComponent(o[1]))}}e.enable=function(){t.call(e,!0);try{window.localStorage.minilogSettings=JSON.stringify(!0)}catch(n){}return this},e.disable=function(){n.call(e);try{delete window.localStorage.minilogSettings}catch(t){}return this},exports=module.exports=e,exports.backends={array:require("./array.js"),browser:e.defaultBackend,localStorage:require("./localstorage.js"),jQuery:require("./jquery_simple.js")};
+var Minilog = require("../common/minilog.js"), oldEnable = Minilog.enable, oldDisable = Minilog.disable, isChrome = typeof navigator != "undefined" && /chrome/i.test(navigator.userAgent), console = require("./console.js");
+
+Minilog.defaultBackend = isChrome ? console.minilog : console;
+
+if (typeof window != "undefined") {
+    try {
+        Minilog.enable(JSON.parse(window.localStorage.minilogSettings));
+    } catch (e) {}
+    if (window.location && window.location.search) {
+        var match = RegExp("[?&]minilog=([^&]*)").exec(window.location.search);
+        match && Minilog.enable(decodeURIComponent(match[1]));
+    }
+}
+
+Minilog.enable = function() {
+    oldEnable.call(Minilog, !0);
+    try {
+        window.localStorage.minilogSettings = JSON.stringify(!0);
+    } catch (e) {}
+    return this;
+}, Minilog.disable = function() {
+    oldDisable.call(Minilog);
+    try {
+        delete window.localStorage.minilogSettings;
+    } catch (e) {}
+    return this;
+}, exports = module.exports = Minilog, exports.backends = {
+    array: require("./array.js"),
+    browser: Minilog.defaultBackend,
+    localStorage: require("./localstorage.js"),
+    jQuery: require("./jquery_simple.js")
+};
 },
 "lib/web/array.js": function(module, exports, require){
-var e=require("../common/transform.js"),t=[],n=new e;n.write=function(e,n,r){t.push([e,n,r])},n.get=function(){return t},n.empty=function(){t=[]},module.exports=n;
+var Transform = require("../common/transform.js"), cache = [], logger = new Transform;
+
+logger.write = function(e, t, n) {
+    cache.push([ e, t, n ]);
+}, logger.get = function() {
+    return cache;
+}, logger.empty = function() {
+    cache = [];
+}, module.exports = logger;
 },
 "lib/web/console.js": function(module, exports, require){
-var e=require("../common/transform.js"),t=/\n+$/,n=new e;n.write=function(e,n,r){var i=r.length-1;if(typeof console=="undefined"||!console.log)return;if(console.log.apply)return console.log.apply(console,[e,n].concat(r));if(JSON&&JSON.stringify){r[i]&&typeof r[i]=="string"&&(r[i]=r[i].replace(t,""));try{for(i=0;i<r.length;i++)r[i]=JSON.stringify(r[i])}catch(s){}console.log(r.join(" "))}},n.formatters=["color","minilog"],n.color=require("./formatters/color.js"),n.minilog=require("./formatters/minilog.js"),module.exports=n;
+var Transform = require("../common/transform.js"), newlines = /\n+$/, logger = new Transform;
+
+logger.write = function(e, t, n) {
+    var r = n.length - 1;
+    if (typeof console == "undefined" || !console.log) return;
+    if (console.log.apply) return console.log.apply(console, [ e, t ].concat(n));
+    if (JSON && JSON.stringify) {
+        n[r] && typeof n[r] == "string" && (n[r] = n[r].replace(newlines, ""));
+        try {
+            for (r = 0; r < n.length; r++) n[r] = JSON.stringify(n[r]);
+        } catch (i) {}
+        console.log(n.join(" "));
+    }
+}, logger.formatters = [ "color", "minilog" ], logger.color = require("./formatters/color.js"), logger.minilog = require("./formatters/minilog.js"), module.exports = logger;
 },
 "lib/common/filter.js": function(module, exports, require){
-function n(){this.enabled=!0,this.defaultResult=!0,this.clear()}function r(e,t){return e.n.test?e.n.test(t):e.n==t}var e=require("./transform.js"),t={debug:1,info:2,warn:3,error:4};e.mixin(n),n.prototype.allow=function(e,n){return this._white.push({n:e,l:t[n]}),this},n.prototype.deny=function(e,n){return this._black.push({n:e,l:t[n]}),this},n.prototype.clear=function(){return this._white=[],this._black=[],this},n.prototype.test=function(e,n){var i,s=Math.max(this._white.length,this._black.length);for(i=0;i<s;i++){if(this._white[i]&&r(this._white[i],e)&&t[n]>=this._white[i].l)return!0;if(this._black[i]&&r(this._black[i],e)&&t[n]<this._black[i].l)return!1}return this.defaultResult},n.prototype.write=function(e,t,n){if(!this.enabled||this.test(e,t))return this.emit("item",e,t,n)},module.exports=n;
+// default filter
+function Filter() {
+    this.enabled = !0, this.defaultResult = !0, this.clear();
+}
+
+function test(e, t) {
+    return e.n.test ? e.n.test(t) : e.n == t;
+}
+
+var Transform = require("./transform.js"), levelMap = {
+    debug: 1,
+    info: 2,
+    warn: 3,
+    error: 4
+};
+
+Transform.mixin(Filter), Filter.prototype.allow = function(e, t) {
+    return this._white.push({
+        n: e,
+        l: levelMap[t]
+    }), this;
+}, Filter.prototype.deny = function(e, t) {
+    return this._black.push({
+        n: e,
+        l: levelMap[t]
+    }), this;
+}, Filter.prototype.clear = function() {
+    return this._white = [], this._black = [], this;
+}, Filter.prototype.test = function(e, t) {
+    var n, r = Math.max(this._white.length, this._black.length);
+    for (n = 0; n < r; n++) {
+        if (this._white[n] && test(this._white[n], e) && levelMap[t] >= this._white[n].l) return !0;
+        if (this._black[n] && test(this._black[n], e) && levelMap[t] < this._black[n].l) return !1;
+    }
+    return this.defaultResult;
+}, Filter.prototype.write = function(e, t, n) {
+    if (!this.enabled || this.test(e, t)) return this.emit("item", e, t, n);
+}, module.exports = Filter;
 },
 "lib/common/minilog.js": function(module, exports, require){
-var e=require("./transform.js"),t=require("./filter.js"),n=new e,r=Array.prototype.slice;exports=module.exports=function(t){var i=function(){return n.write(t,undefined,r.call(arguments)),i};return i.debug=function(){return n.write(t,"debug",r.call(arguments)),i},i.info=function(){return n.write(t,"info",r.call(arguments)),i},i.warn=function(){return n.write(t,"warn",r.call(arguments)),i},i.error=function(){return n.write(t,"error",r.call(arguments)),i},i.log=i.debug,i.suggest=exports.suggest,i.format=n.format,i},exports.defaultBackend=exports.defaultFormatter=null,exports.pipe=function(e){return n.pipe(e)},exports.end=exports.unpipe=exports.disable=function(e){return n.unpipe(e)},exports.Transform=e,exports.Filter=t,exports.suggest=new t,exports.enable=function(){return exports.defaultFormatter?n.pipe(exports.suggest).pipe(exports.defaultFormatter).pipe(exports.defaultBackend):n.pipe(exports.suggest).pipe(exports.defaultBackend)};
+var Transform = require("./transform.js"), Filter = require("./filter.js"), log = new Transform, slice = Array.prototype.slice;
+
+exports = module.exports = function(t) {
+    var n = function() {
+        return log.write(t, undefined, slice.call(arguments)), n;
+    };
+    return n.debug = function() {
+        return log.write(t, "debug", slice.call(arguments)), n;
+    }, n.info = function() {
+        return log.write(t, "info", slice.call(arguments)), n;
+    }, n.warn = function() {
+        return log.write(t, "warn", slice.call(arguments)), n;
+    }, n.error = function() {
+        return log.write(t, "error", slice.call(arguments)), n;
+    }, n.log = n.debug, n.suggest = exports.suggest, n.format = log.format, n;
+}, exports.defaultBackend = exports.defaultFormatter = null, exports.pipe = function(e) {
+    return log.pipe(e);
+}, exports.end = exports.unpipe = exports.disable = function(e) {
+    return log.unpipe(e);
+}, exports.Transform = Transform, exports.Filter = Filter, exports.suggest = new Filter, exports.enable = function() {
+    return exports.defaultFormatter ? log.pipe(exports.suggest).pipe(exports.defaultFormatter).pipe(exports.defaultBackend) : log.pipe(exports.suggest).pipe(exports.defaultBackend);
+};
 },
 "lib/common/transform.js": function(module, exports, require){
-function t(){}var e=require("microee");e.mixin(t),t.prototype.write=function(e,t,n){this.emit("item",e,t,n)},t.prototype.end=function(){this.emit("end"),this.removeAllListeners()},t.prototype.pipe=function(e){function n(){e.write.apply(e,Array.prototype.slice.call(arguments))}function r(){!e._isStdio&&e.end()}var t=this;return t.emit("unpipe",e),e.emit("pipe",t),t.on("item",n),t.on("end",r),t.when("unpipe",function(i){var o=i===e||typeof i=="undefined";return o&&(t.removeListener("item",n),t.removeListener("end",r),e.emit("unpipe")),o}),e},t.prototype.unpipe=function(e){return this.emit("unpipe",e),this},t.prototype.format=function(e){throw new Error(["Warning: .format() is deprecated in Minilog v2! Use .pipe() instead. For example:","var Minilog = require('minilog');","Minilog","  .pipe(Minilog.backends.console.formatClean)","  .pipe(Minilog.backends.console);"].join("\n"))},t.mixin=function(e){var n=t.prototype,r;for(r in n)n.hasOwnProperty(r)&&(e.prototype[r]=n[r])},module.exports=t;
+function Transform() {}
+
+var microee = require("microee");
+
+microee.mixin(Transform), Transform.prototype.write = function(e, t, n) {
+    this.emit("item", e, t, n);
+}, Transform.prototype.end = function() {
+    this.emit("end"), this.removeAllListeners();
+}, Transform.prototype.pipe = function(e) {
+    function n() {
+        e.write.apply(e, Array.prototype.slice.call(arguments));
+    }
+    function r() {
+        !e._isStdio && e.end();
+    }
+    var t = this;
+    return t.emit("unpipe", e), e.emit("pipe", t), t.on("item", n), t.on("end", r), t.when("unpipe", function(i) {
+        var o = i === e || typeof i == "undefined";
+        return o && (t.removeListener("item", n), t.removeListener("end", r), e.emit("unpipe")), o;
+    }), e;
+}, Transform.prototype.unpipe = function(e) {
+    return this.emit("unpipe", e), this;
+}, Transform.prototype.format = function(e) {
+    throw new Error([ "Warning: .format() is deprecated in Minilog v2! Use .pipe() instead. For example:", "var Minilog = require('minilog');", "Minilog", "  .pipe(Minilog.backends.console.formatClean)", "  .pipe(Minilog.backends.console);" ].join("\n"));
+}, Transform.mixin = function(e) {
+    var t = Transform.prototype, n;
+    for (n in t) t.hasOwnProperty(n) && (e.prototype[n] = t[n]);
+}, module.exports = Transform;
 },
 "lib/web/localstorage.js": function(module, exports, require){
-var e=require("../common/transform.js"),t=!1,n=new e;n.write=function(e,n,r){if(typeof window=="undefined"||typeof JSON=="undefined"||!JSON.stringify||!JSON.parse)return;try{t||(t=window.localStorage.minilog?JSON.parse(window.localStorage.minilog):[]),t.push([(new Date).toString(),e,n,r]),window.localStorage.minilog=JSON.stringify(t)}catch(i){}},module.exports=n;
+var Transform = require("../common/transform.js"), cache = !1, logger = new Transform;
+
+logger.write = function(e, t, n) {
+    if (typeof window == "undefined" || typeof JSON == "undefined" || !JSON.stringify || !JSON.parse) return;
+    try {
+        cache || (cache = window.localStorage.minilog ? JSON.parse(window.localStorage.minilog) : []), cache.push([ (new Date).toString(), e, t, n ]), window.localStorage.minilog = JSON.stringify(cache);
+    } catch (r) {}
+}, module.exports = logger;
 },
 "lib/web/jquery_simple.js": function(module, exports, require){
-function n(e){this.url=e.url||"",this.cache=[],this.timer=null,this.interval=e.interval||3e4,this.enabled=!0,this.jQuery=window.jQuery,this.extras={}}var e=require("../common/transform.js"),t=(new Date).valueOf().toString(36);e.mixin(n),n.prototype.write=function(e,t,n){this.timer||this.init(),this.cache.push([e,t].concat(n))},n.prototype.init=function(){if(!this.enabled||!this.jQuery)return;var e=this;this.timer=setTimeout(function(){var n,r=[],i,s=e.url;if(e.cache.length==0)return e.init();for(n=0;n<e.cache.length;n++)try{r.push(JSON.stringify(e.cache[n]))}catch(o){}e.jQuery.isEmptyObject(e.extras)?(i=r.join("\n"),s=e.url+"?client_id="+t):i=JSON.stringify(e.jQuery.extend({logs:r},e.extras)),e.jQuery.ajax(s,{type:"POST",cache:!1,processData:!1,data:i,contentType:"application/json",timeout:1e4}).success(function(t,n,r){t.interval&&(e.interval=Math.max(1e3,t.interval))}).error(function(){e.interval=3e4}).always(function(){e.init()}),e.cache=[]},this.interval)},n.prototype.end=function(){},n.jQueryWait=function(e){if(typeof window!="undefined"&&(window.jQuery||window.$))return e(window.jQuery||window.$);typeof window!="undefined"&&setTimeout(function(){n.jQueryWait(e)},200)},module.exports=n;
+function AjaxLogger(e) {
+    this.url = e.url || "", this.cache = [], this.timer = null, this.interval = e.interval || 3e4, this.enabled = !0, this.jQuery = window.jQuery, this.extras = {};
+}
+
+var Transform = require("../common/transform.js"), cid = (new Date).valueOf().toString(36);
+
+Transform.mixin(AjaxLogger), AjaxLogger.prototype.write = function(e, t, n) {
+    this.timer || this.init(), this.cache.push([ e, t ].concat(n));
+}, AjaxLogger.prototype.init = function() {
+    if (!this.enabled || !this.jQuery) return;
+    var e = this;
+    this.timer = setTimeout(function() {
+        var t, n = [], r, i = e.url;
+        if (e.cache.length == 0) return e.init();
+        for (t = 0; t < e.cache.length; t++) try {
+            n.push(JSON.stringify(e.cache[t]));
+        } catch (s) {}
+        e.jQuery.isEmptyObject(e.extras) ? (r = n.join("\n"), i = e.url + "?client_id=" + cid) : r = JSON.stringify(e.jQuery.extend({
+            logs: n
+        }, e.extras)), e.jQuery.ajax(i, {
+            type: "POST",
+            cache: !1,
+            processData: !1,
+            data: r,
+            contentType: "application/json",
+            timeout: 1e4
+        }).success(function(t, n, r) {
+            t.interval && (e.interval = Math.max(1e3, t.interval));
+        }).error(function() {
+            e.interval = 3e4;
+        }).always(function() {
+            e.init();
+        }), e.cache = [];
+    }, this.interval);
+}, AjaxLogger.prototype.end = function() {}, AjaxLogger.jQueryWait = function(e) {
+    if (typeof window != "undefined" && (window.jQuery || window.$)) return e(window.jQuery || window.$);
+    typeof window != "undefined" && setTimeout(function() {
+        AjaxLogger.jQueryWait(e);
+    }, 200);
+}, module.exports = AjaxLogger;
 },
 "lib/web/formatters/util.js": function(module, exports, require){
-function t(t,n){return n?"color: #fff; background: "+e[t]+";":"color: "+e[t]+";"}var e={black:"#000",red:"#c23621",green:"#25bc26",yellow:"#bbbb00",blue:"#492ee1",magenta:"#d338d3",cyan:"#33bbc8",gray:"#808080",purple:"#708"};module.exports=t;
+function color(e, t) {
+    return t ? "color: #fff; background: " + hex[e] + ";" : "color: " + hex[e] + ";";
+}
+
+var hex = {
+    black: "#000",
+    red: "#c23621",
+    green: "#25bc26",
+    yellow: "#bbbb00",
+    blue: "#492ee1",
+    magenta: "#d338d3",
+    cyan: "#33bbc8",
+    gray: "#808080",
+    purple: "#708"
+};
+
+module.exports = color;
 },
 "lib/web/formatters/color.js": function(module, exports, require){
-var e=require("../../common/transform.js"),t=require("./util.js"),n={debug:["cyan"],info:["purple"],warn:["yellow",!0],error:["red",!0]},r=new e;r.write=function(e,r,i){var s=console.log;console[r]&&console[r].apply&&(s=console[r],s.apply(console,["%c"+e+" %c"+r,t("gray"),t.apply(t,n[r])].concat(i)))},r.pipe=function(){},module.exports=r;
+var Transform = require("../../common/transform.js"), color = require("./util.js"), colors = {
+    debug: [ "cyan" ],
+    info: [ "purple" ],
+    warn: [ "yellow", !0 ],
+    error: [ "red", !0 ]
+}, logger = new Transform;
+
+logger.write = function(e, t, n) {
+    var r = console.log;
+    console[t] && console[t].apply && (r = console[t], r.apply(console, [ "%c" + e + " %c" + t, color("gray"), color.apply(color, colors[t]) ].concat(n)));
+}, logger.pipe = function() {}, module.exports = logger;
 },
 "lib/web/formatters/minilog.js": function(module, exports, require){
-var e=require("../../common/transform.js"),t=require("./util.js");colors={debug:["gray"],info:["purple"],warn:["yellow",!0],error:["red",!0]},logger=new e,logger.write=function(e,n,r){var i=console.log;n!="debug"&&console[n]&&(i=console[n]);var s=[],o=0;if(n!="info"){for(;o<r.length;o++)if(typeof r[o]!="string")break;i.apply(console,["%c"+e+" "+r.slice(0,o).join(" "),t.apply(t,colors[n])].concat(r.slice(o)))}else i.apply(console,["%c"+e,t.apply(t,colors[n])].concat(r))},logger.pipe=function(){},module.exports=logger;
+var Transform = require("../../common/transform.js"), color = require("./util.js"), colors = {
+    debug: [ "gray" ],
+    info: [ "purple" ],
+    warn: [ "yellow", !0 ],
+    error: [ "red", !0 ]
+}, logger = new Transform;
+
+logger.write = function(e, t, n) {
+    var r = console.log;
+    t != "debug" && console[t] && (r = console[t]);
+    var i = [], s = 0;
+    if (t != "info") {
+        for (; s < n.length; s++) if (typeof n[s] != "string") break;
+        r.apply(console, [ "%c" + e + " " + n.slice(0, s).join(" "), color.apply(color, colors[t]) ].concat(n.slice(s)));
+    } else r.apply(console, [ "%c" + e, color.apply(color, colors[t]) ].concat(n));
+}, logger.pipe = function() {}, module.exports = logger;
 }
 };
 r.m[1] = {
 };
 r.m[2] = {
 "index.js": function(module, exports, require){
-function e(){this._events={}}e.prototype={on:function(e,t){this._events||(this._events={});var n=this._events;return(n[e]||(n[e]=[])).push(t),this},removeListener:function(e,t){var n=this._events[e]||[],r;for(r=n.length-1;r>=0&&n[r];r--)(n[r]===t||n[r].cb===t)&&n.splice(r,1)},removeAllListeners:function(e){e?this._events[e]&&(this._events[e]=[]):this._events={}},emit:function(e){this._events||(this._events={});var t=Array.prototype.slice.call(arguments,1),n,r=this._events[e]||[];for(n=r.length-1;n>=0&&r[n];n--)r[n].apply(this,t);return this},when:function(e,t){return this.once(e,t,!0)},once:function(e,t,n){function r(){n||this.removeListener(e,r),t.apply(this,arguments)&&n&&this.removeListener(e,r)}return t?(r.cb=t,this.on(e,r),this):this}},e.mixin=function(t){var n=e.prototype,r;for(r in n)n.hasOwnProperty(r)&&(t.prototype[r]=n[r])},module.exports=e;
+function M() {
+    this._events = {};
+}
+
+M.prototype = {
+    on: function(e, t) {
+        this._events || (this._events = {});
+        var n = this._events;
+        return (n[e] || (n[e] = [])).push(t), this;
+    },
+    removeListener: function(e, t) {
+        var n = this._events[e] || [], r;
+        for (r = n.length - 1; r >= 0 && n[r]; r--) (n[r] === t || n[r].cb === t) && n.splice(r, 1);
+    },
+    removeAllListeners: function(e) {
+        e ? this._events[e] && (this._events[e] = []) : this._events = {};
+    },
+    emit: function(e) {
+        this._events || (this._events = {});
+        var t = Array.prototype.slice.call(arguments, 1), n, r = this._events[e] || [];
+        for (n = r.length - 1; n >= 0 && r[n]; n--) r[n].apply(this, t);
+        return this;
+    },
+    when: function(e, t) {
+        return this.once(e, t, !0);
+    },
+    once: function(e, t, n) {
+        function r() {
+            n || this.removeListener(e, r), t.apply(this, arguments) && n && this.removeListener(e, r);
+        }
+        return t ? (r.cb = t, this.on(e, r), this) : this;
+    }
+}, M.mixin = function(e) {
+    var t = M.prototype, n;
+    for (n in t) t.hasOwnProperty(n) && (e.prototype[n] = t[n]);
+}, module.exports = M;
+},
+"package.json": function(module, exports, require){
+module.exports = {
+  "name": "microee",
+  "description": "A tiny EventEmitter-like client and server side library",
+  "version": "0.0.2",
+  "author": {
+    "name": "Mikito Takada",
+    "email": "mixu@mixu.net",
+    "url": "http://mixu.net/"
+  },
+  "keywords": [
+    "event",
+    "events",
+    "eventemitter",
+    "emitter"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/mixu/microee"
+  },
+  "main": "index.js",
+  "scripts": {
+    "test": "./node_modules/.bin/mocha --ui exports --reporter spec --bail ./test/microee.test.js"
+  },
+  "devDependencies": {
+    "mocha": "*"
+  },
+  "_id": "microee@0.0.2",
+  "dist": {
+    "shasum": "72e80d477075e5e799470f5defea96d1dd121587",
+    "tarball": "http://registry.npmjs.org/microee/-/microee-0.0.2.tgz"
+  },
+  "_npmVersion": "1.1.59",
+  "_npmUser": {
+    "name": "mixu",
+    "email": "mixu@mixu.net"
+  },
+  "maintainers": [
+    {
+      "name": "mixu",
+      "email": "mixu@mixu.net"
+    }
+  ],
+  "directories": {},
+  "_shasum": "72e80d477075e5e799470f5defea96d1dd121587",
+  "_from": "microee@0.0.2",
+  "_resolved": "https://registry.npmjs.org/microee/-/microee-0.0.2.tgz"
+};
 }
 };
 Minilog = r("lib/web/index.js");}());
