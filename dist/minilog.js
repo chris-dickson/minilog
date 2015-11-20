@@ -3,305 +3,513 @@ var r=function(){var e="function"==typeof require&&require,r=function(i,o,u){o||
 r.m[0] = {
 "microee": {"c":2,"m":"index.js"},
 "lib/web/index.js": function(module, exports, require){
-var Minilog = require("../common/minilog.js"), oldEnable = Minilog.enable, oldDisable = Minilog.disable, isChrome = typeof navigator != "undefined" && /chrome/i.test(navigator.userAgent), console = require("./console.js");
+var Minilog = require('../common/minilog.js');
 
-Minilog.defaultBackend = isChrome ? console.minilog : console;
+var oldEnable = Minilog.enable,
+    oldDisable = Minilog.disable,
+    isChrome = (typeof navigator != 'undefined' && /chrome/i.test(navigator.userAgent)),
+    console = require('./console.js');
 
-if (typeof window != "undefined") {
-    try {
-        Minilog.enable(JSON.parse(window.localStorage.minilogSettings));
-    } catch (e) {}
-    if (window.location && window.location.search) {
-        var match = RegExp("[?&]minilog=([^&]*)").exec(window.location.search);
-        match && Minilog.enable(decodeURIComponent(match[1]));
-    }
+// Use a more capable logging backend if on Chrome
+Minilog.defaultBackend = (isChrome ? console.minilog : console);
+
+// apply enable inputs from localStorage and from the URL
+if(typeof window != 'undefined') {
+  try {
+    Minilog.enable(JSON.parse(window.localStorage['minilogSettings']));
+  } catch(e) {}
+  if(window.location && window.location.search) {
+    var match = RegExp('[?&]minilog=([^&]*)').exec(window.location.search);
+    match && Minilog.enable(decodeURIComponent(match[1]));
+  }
 }
 
+// Make enable also add to localStorage
 Minilog.enable = function() {
-    oldEnable.call(Minilog, !0);
-    try {
-        window.localStorage.minilogSettings = JSON.stringify(!0);
-    } catch (e) {}
-    return this;
-}, Minilog.disable = function() {
-    oldDisable.call(Minilog);
-    try {
-        delete window.localStorage.minilogSettings;
-    } catch (e) {}
-    return this;
-}, exports = module.exports = Minilog, exports.backends = {
-    array: require("./array.js"),
-    browser: Minilog.defaultBackend,
-    localStorage: require("./localstorage.js"),
-    jQuery: require("./jquery_simple.js")
+  oldEnable.call(Minilog, true);
+  try { window.localStorage['minilogSettings'] = JSON.stringify(true); } catch(e) {}
+  return this;
 };
+
+Minilog.disable = function() {
+  oldDisable.call(Minilog);
+  try { delete window.localStorage.minilogSettings; } catch(e) {}
+  return this;
+};
+
+exports = module.exports = Minilog;
+
+exports.backends = {
+  array: require('./array.js'),
+  browser: Minilog.defaultBackend,
+  localStorage: require('./localstorage.js'),
+  jQuery: require('./jquery_simple.js')
+};
+
 },
 "lib/web/array.js": function(module, exports, require){
-var Transform = require("../common/transform.js"), cache = [], logger = new Transform;
+var Transform = require('../common/transform.js'),
+    cache = [ ];
 
-logger.write = function(e, t, n) {
-    cache.push([ e, t, n ]);
-}, logger.get = function() {
-    return cache;
-}, logger.empty = function() {
-    cache = [];
-}, module.exports = logger;
+var logger = new Transform();
+
+logger.write = function(name, level, args) {
+  cache.push([ name, level, args ]);
+};
+
+// utility functions
+logger.get = function() { return cache; };
+logger.empty = function() { cache = []; };
+
+module.exports = logger;
+
 },
 "lib/web/console.js": function(module, exports, require){
-var Transform = require("../common/transform.js"), newlines = /\n+$/, logger = new Transform;
+var Transform = require('../common/transform.js');
 
-logger.write = function(e, t, n) {
-    var r = n.length - 1;
-    if (typeof console == "undefined" || !console.log) return;
-    if (console.log.apply) return console.log.apply(console, [ e, t ].concat(n));
-    if (JSON && JSON.stringify) {
-        n[r] && typeof n[r] == "string" && (n[r] = n[r].replace(newlines, ""));
-        try {
-            for (r = 0; r < n.length; r++) n[r] = JSON.stringify(n[r]);
-        } catch (i) {}
-        console.log(n.join(" "));
+var newlines = /\n+$/,
+    logger = new Transform();
+
+logger.write = function(name, level, args) {
+  var i = args.length-1;
+  if (typeof console === 'undefined' || !console.log) {
+    return;
+  }
+  if(console.log.apply) {
+    return console.log.apply(console, [name, level].concat(args));
+  } else if(JSON && JSON.stringify) {
+    // console.log.apply is undefined in IE8 and IE9
+    // for IE8/9: make console.log at least a bit less awful
+    if(args[i] && typeof args[i] == 'string') {
+      args[i] = args[i].replace(newlines, '');
     }
-}, logger.formatters = [ "color", "minilog" ], logger.color = require("./formatters/color.js"), logger.minilog = require("./formatters/minilog.js"), module.exports = logger;
+    try {
+      for(i = 0; i < args.length; i++) {
+        args[i] = JSON.stringify(args[i]);
+      }
+    } catch(e) {}
+    console.log(args.join(' '));
+  }
+};
+
+logger.formatters = ['color', 'minilog'];
+logger.color = require('./formatters/color.js');
+logger.minilog = require('./formatters/minilog.js');
+
+module.exports = logger;
+
 },
 "lib/common/filter.js": function(module, exports, require){
 // default filter
+var Transform = require('./transform.js');
+
+var levelMap = { debug: 1, info: 2, warn: 3, error: 4 };
+
 function Filter() {
-    this.enabled = !0, this.defaultResult = !0, this.clear();
+  this.enabled = true;
+  this.defaultResult = true;
+  this.clear();
 }
 
-function test(e, t) {
-    return e.n.test ? e.n.test(t) : e.n == t;
-}
+Transform.mixin(Filter);
 
-var Transform = require("./transform.js"), levelMap = {
-    debug: 1,
-    info: 2,
-    warn: 3,
-    error: 4
+// allow all matching, with level >= given level
+Filter.prototype.allow = function(name, level) {
+  this._white.push({ n: name, l: levelMap[level] });
+  return this;
 };
 
-Transform.mixin(Filter), Filter.prototype.allow = function(e, t) {
-    return this._white.push({
-        n: e,
-        l: levelMap[t]
-    }), this;
-}, Filter.prototype.deny = function(e, t) {
-    return this._black.push({
-        n: e,
-        l: levelMap[t]
-    }), this;
-}, Filter.prototype.clear = function() {
-    return this._white = [], this._black = [], this;
-}, Filter.prototype.test = function(e, t) {
-    var n, r = Math.max(this._white.length, this._black.length);
-    for (n = 0; n < r; n++) {
-        if (this._white[n] && test(this._white[n], e) && levelMap[t] >= this._white[n].l) return !0;
-        if (this._black[n] && test(this._black[n], e) && levelMap[t] < this._black[n].l) return !1;
+// deny all matching, with level <= given level
+Filter.prototype.deny = function(name, level) {
+  this._black.push({ n: name, l: levelMap[level] });
+  return this;
+};
+
+Filter.prototype.clear = function() {
+  this._white = [];
+  this._black = [];
+  return this;
+};
+
+function test(rule, name) {
+  // use .test for RegExps
+  return (rule.n.test ? rule.n.test(name) : rule.n == name);
+};
+
+Filter.prototype.test = function(name, level) {
+  var i, len = Math.max(this._white.length, this._black.length);
+  for(i = 0; i < len; i++) {
+    if(this._white[i] && test(this._white[i], name) && levelMap[level] >= this._white[i].l) {
+      return true;
     }
-    return this.defaultResult;
-}, Filter.prototype.write = function(e, t, n) {
-    if (!this.enabled || this.test(e, t)) return this.emit("item", e, t, n);
-}, module.exports = Filter;
+    if(this._black[i] && test(this._black[i], name) && levelMap[level] < this._black[i].l) {
+      return false;
+    }
+  }
+  return this.defaultResult;
+};
+
+Filter.prototype.write = function(name, level, args) {
+  if(!this.enabled || this.test(name, level)) {
+    return this.emit('item', name, level, args);
+  }
+};
+
+module.exports = Filter;
+
 },
 "lib/common/minilog.js": function(module, exports, require){
-var Transform = require("./transform.js"), Filter = require("./filter.js"), log = new Transform, slice = Array.prototype.slice;
+var Transform = require('./transform.js'),
+    Filter = require('./filter.js');
 
-exports = module.exports = function(t) {
-    var n = function() {
-        return log.write(t, undefined, slice.call(arguments)), n;
-    };
-    return n.debug = function() {
-        return log.write(t, "debug", slice.call(arguments)), n;
-    }, n.info = function() {
-        return log.write(t, "info", slice.call(arguments)), n;
-    }, n.warn = function() {
-        return log.write(t, "warn", slice.call(arguments)), n;
-    }, n.error = function() {
-        return log.write(t, "error", slice.call(arguments)), n;
-    }, n.log = n.debug, n.suggest = exports.suggest, n.format = log.format, n;
-}, exports.defaultBackend = exports.defaultFormatter = null, exports.pipe = function(e) {
-    return log.pipe(e);
-}, exports.end = exports.unpipe = exports.disable = function(e) {
-    return log.unpipe(e);
-}, exports.Transform = Transform, exports.Filter = Filter, exports.suggest = new Filter, exports.enable = function() {
-    return exports.defaultFormatter ? log.pipe(exports.suggest).pipe(exports.defaultFormatter).pipe(exports.defaultBackend) : log.pipe(exports.suggest).pipe(exports.defaultBackend);
+var log = new Transform(),
+    slice = Array.prototype.slice;
+
+exports = module.exports = function create(name) {
+  var o   = function() { log.write(name, undefined, slice.call(arguments)); return o; };
+  o.debug = function() { log.write(name, 'debug', slice.call(arguments)); return o; };
+  o.info  = function() { log.write(name, 'info',  slice.call(arguments)); return o; };
+  o.warn  = function() { log.write(name, 'warn',  slice.call(arguments)); return o; };
+  o.error = function() { log.write(name, 'error', slice.call(arguments)); return o; };
+  o.log   = o.debug; // for interface compliance with Node and browser consoles
+  o.suggest = exports.suggest;
+  o.format = log.format;
+  return o;
 };
+
+// filled in separately
+exports.defaultBackend = exports.defaultFormatter = null;
+
+exports.pipe = function(dest) {
+  return log.pipe(dest);
+};
+
+exports.end = exports.unpipe = exports.disable = function(from) {
+  return log.unpipe(from);
+};
+
+exports.Transform = Transform;
+exports.Filter = Filter;
+// this is the default filter that's applied when .enable() is called normally
+// you can bypass it completely and set up your own pipes
+exports.suggest = new Filter();
+
+exports.enable = function() {
+  if(exports.defaultFormatter) {
+    return log.pipe(exports.suggest) // filter
+              .pipe(exports.defaultFormatter) // formatter
+              .pipe(exports.defaultBackend); // backend
+  }
+  return log.pipe(exports.suggest) // filter
+            .pipe(exports.defaultBackend); // formatter
+};
+
+
 },
 "lib/common/transform.js": function(module, exports, require){
+var microee = require('microee');
+
+// Implements a subset of Node's stream.Transform - in a cross-platform manner.
 function Transform() {}
 
-var microee = require("microee");
+microee.mixin(Transform);
 
-microee.mixin(Transform), Transform.prototype.write = function(e, t, n) {
-    this.emit("item", e, t, n);
-}, Transform.prototype.end = function() {
-    this.emit("end"), this.removeAllListeners();
-}, Transform.prototype.pipe = function(e) {
-    function n() {
-        e.write.apply(e, Array.prototype.slice.call(arguments));
-    }
-    function r() {
-        !e._isStdio && e.end();
-    }
-    var t = this;
-    return t.emit("unpipe", e), e.emit("pipe", t), t.on("item", n), t.on("end", r), t.when("unpipe", function(i) {
-        var o = i === e || typeof i == "undefined";
-        return o && (t.removeListener("item", n), t.removeListener("end", r), e.emit("unpipe")), o;
-    }), e;
-}, Transform.prototype.unpipe = function(e) {
-    return this.emit("unpipe", e), this;
-}, Transform.prototype.format = function(e) {
-    throw new Error([ "Warning: .format() is deprecated in Minilog v2! Use .pipe() instead. For example:", "var Minilog = require('minilog');", "Minilog", "  .pipe(Minilog.backends.console.formatClean)", "  .pipe(Minilog.backends.console);" ].join("\n"));
-}, Transform.mixin = function(e) {
-    var t = Transform.prototype, n;
-    for (n in t) t.hasOwnProperty(n) && (e.prototype[n] = t[n]);
-}, module.exports = Transform;
-},
-"lib/web/localstorage.js": function(module, exports, require){
-var Transform = require("../common/transform.js"), cache = !1, logger = new Transform;
-
-logger.write = function(e, t, n) {
-    if (typeof window == "undefined" || typeof JSON == "undefined" || !JSON.stringify || !JSON.parse) return;
-    try {
-        cache || (cache = window.localStorage.minilog ? JSON.parse(window.localStorage.minilog) : []), cache.push([ (new Date).toString(), e, t, n ]), window.localStorage.minilog = JSON.stringify(cache);
-    } catch (r) {}
-}, module.exports = logger;
-},
-"lib/web/jquery_simple.js": function(module, exports, require){
-function AjaxLogger(e) {
-    this.url = e.url || "", this.cache = [], this.timer = null, this.interval = e.interval || 3e4, this.enabled = !0, this.jQuery = window.jQuery, this.extras = {}, this.json = e.json || !1;
-}
-
-var Transform = require("../common/transform.js"), cid = (new Date).valueOf().toString(36);
-
-Transform.mixin(AjaxLogger), AjaxLogger.prototype.write = function(e, t, n) {
-    this.timer || this.init(), this.cache.push([ e, t ].concat(n));
-}, AjaxLogger.prototype.init = function() {
-    if (!this.enabled || !this.jQuery) return;
-    var e = this;
-    this.timer = setTimeout(function() {
-        var t, n = [], r, i = e.url;
-        if (e.cache.length == 0) return e.init();
-        for (t = 0; t < e.cache.length; t++) try {
-            e.json ? n.push(e.cache[t]) : n.push(JSON.stringify(e.cache[t]));
-        } catch (s) {}
-        e.jQuery.isEmptyObject(e.extras) && !e.json ? (r = n.join("\n"), i = e.url + "?client_id=" + cid) : e.jQuery.isEmptyObject(e.extras) ? r = JSON.stringify({
-            logs: n
-        }) : r = JSON.stringify(e.jQuery.extend({
-            logs: n
-        }, e.extras)), e.jQuery.ajax(i, {
-            type: "POST",
-            cache: !1,
-            processData: !1,
-            data: r,
-            contentType: "application/json",
-            timeout: 1e4
-        }).success(function(t, n, r) {
-            t.interval && (e.interval = Math.max(1e3, t.interval));
-        }).error(function() {
-            e.interval = 3e4;
-        }).always(function() {
-            e.init();
-        }), e.cache = [];
-    }, this.interval);
-}, AjaxLogger.prototype.end = function() {}, AjaxLogger.jQueryWait = function(e) {
-    if (typeof window != "undefined" && (window.jQuery || window.$)) return e(window.jQuery || window.$);
-    typeof window != "undefined" && setTimeout(function() {
-        AjaxLogger.jQueryWait(e);
-    }, 200);
-}, module.exports = AjaxLogger;
-},
-"lib/web/formatters/util.js": function(module, exports, require){
-function color(e, t) {
-    return t ? "color: #fff; background: " + hex[e] + ";" : "color: " + hex[e] + ";";
-}
-
-var hex = {
-    black: "#000",
-    red: "#c23621",
-    green: "#25bc26",
-    yellow: "#bbbb00",
-    blue: "#492ee1",
-    magenta: "#d338d3",
-    cyan: "#33bbc8",
-    gray: "#808080",
-    purple: "#708"
+// The write() signature is different from Node's
+// --> makes it much easier to work with objects in logs.
+// One of the lessons from v1 was that it's better to target
+// a good browser rather than the lowest common denominator
+// internally.
+// If you want to use external streams, pipe() to ./stringify.js first.
+Transform.prototype.write = function(name, level, args) {
+  this.emit('item', name, level, args);
 };
 
+Transform.prototype.end = function() {
+  this.emit('end');
+  this.removeAllListeners();
+};
+
+Transform.prototype.pipe = function(dest) {
+  var s = this;
+  // prevent double piping
+  s.emit('unpipe', dest);
+  // tell the dest that it's being piped to
+  dest.emit('pipe', s);
+
+  function onItem() {
+    dest.write.apply(dest, Array.prototype.slice.call(arguments));
+  }
+  function onEnd() { !dest._isStdio && dest.end(); }
+
+  s.on('item', onItem);
+  s.on('end', onEnd);
+
+  s.when('unpipe', function(from) {
+    var match = (from === dest) || typeof from == 'undefined';
+    if(match) {
+      s.removeListener('item', onItem);
+      s.removeListener('end', onEnd);
+      dest.emit('unpipe');
+    }
+    return match;
+  });
+
+  return dest;
+};
+
+Transform.prototype.unpipe = function(from) {
+  this.emit('unpipe', from);
+  return this;
+};
+
+Transform.prototype.format = function(dest) {
+  throw new Error([
+    'Warning: .format() is deprecated in Minilog v2! Use .pipe() instead. For example:',
+    'var Minilog = require(\'minilog\');',
+    'Minilog',
+    '  .pipe(Minilog.backends.console.formatClean)',
+    '  .pipe(Minilog.backends.console);'].join('\n'));
+};
+
+Transform.mixin = function(dest) {
+  var o = Transform.prototype, k;
+  for (k in o) {
+    o.hasOwnProperty(k) && (dest.prototype[k] = o[k]);
+  }
+};
+
+module.exports = Transform;
+
+},
+"lib/web/localstorage.js": function(module, exports, require){
+var Transform = require('../common/transform.js'),
+    cache = false;
+
+var logger = new Transform();
+
+logger.write = function(name, level, args) {
+  if(typeof window == 'undefined' || typeof JSON == 'undefined' || !JSON.stringify || !JSON.parse) return;
+  try {
+    if(!cache) { cache = (window.localStorage.minilog ? JSON.parse(window.localStorage.minilog) : []); }
+    cache.push([ new Date().toString(), name, level, args ]);
+    window.localStorage.minilog = JSON.stringify(cache);
+  } catch(e) {}
+};
+
+module.exports = logger;
+},
+"lib/web/jquery_simple.js": function(module, exports, require){
+var Transform = require('../common/transform.js');
+
+var cid = new Date().valueOf().toString(36);
+
+function AjaxLogger(options) {
+  this.url = options.url || '';
+  this.cache = [];
+  this.timer = null;
+  this.interval = options.interval || 30*1000;
+  this.enabled = true;
+  this.jQuery = window.jQuery;
+  this.extras = {};
+  this.json = options.json || false;
+}
+
+Transform.mixin(AjaxLogger);
+
+AjaxLogger.prototype.write = function(name, level, args) {
+  if(!this.timer) { this.init(); }
+  this.cache.push([name, level].concat(args));
+};
+
+AjaxLogger.prototype.init = function() {
+  if(!this.enabled || !this.jQuery) return;
+  var self = this;
+  this.timer = setTimeout(function() {
+    var i, logs = [], ajaxData, url = self.url;
+    if(self.cache.length == 0) return self.init();
+    // Need to convert each log line individually
+    // so that having invalid (circular) references won't impact all the lines.
+
+    for(i = 0; i < self.cache.length; i++) {
+      try {
+        if (self.json) {
+          logs.push(self.cache[i]);
+        } else {
+          logs.push(JSON.stringify(self.cache[i]));
+        }
+      } catch(e) { }
+    }
+    if(self.jQuery.isEmptyObject(self.extras) && !self.json) {
+        ajaxData = logs.join('\n');
+        url = self.url + '?client_id=' + cid;
+    } else {
+        if (!self.jQuery.isEmptyObject(self.extras)) {
+          ajaxData = JSON.stringify(self.jQuery.extend({logs: logs}, self.extras));
+        } else {
+          ajaxData = JSON.stringify({logs: logs});
+        }
+    }
+
+    self.jQuery.ajax(url, {
+      type: 'POST',
+      cache: false,
+      processData: false,
+      data: ajaxData,
+      contentType: 'application/json',
+      timeout: 10000
+    }).success(function(data, status, jqxhr) {
+      if(data && data.interval) {
+        self.interval = Math.max(1000, data.interval);
+      }
+    }).error(function() {
+      self.interval = 30000;
+    }).always(function() {
+      self.init();
+    });
+    self.cache = [];
+  }, this.interval);
+};
+
+AjaxLogger.prototype.end = function() {};
+
+// wait until jQuery is defined. Useful if you don't control the load order.
+AjaxLogger.jQueryWait = function(onDone) {
+  if(typeof window !== 'undefined' && (window.jQuery || window.$)) {
+    return onDone(window.jQuery || window.$);
+  } else if (typeof window !== 'undefined') {
+    setTimeout(function() { AjaxLogger.jQueryWait(onDone); }, 200);
+  }
+};
+
+module.exports = AjaxLogger;
+
+},
+"lib/web/formatters/util.js": function(module, exports, require){
+var hex = {
+  black: '#000',
+  red: '#c23621',
+  green: '#25bc26',
+  yellow: '#bbbb00',
+  blue:  '#492ee1',
+  magenta: '#d338d3',
+  cyan: '#33bbc8',
+  gray: '#808080',
+  purple: '#708'
+};
+function color(fg, isInverse) {
+  if(isInverse) {
+    return 'color: #fff; background: '+hex[fg]+';';
+  } else {
+    return 'color: '+hex[fg]+';';
+  }
+}
+
 module.exports = color;
+
 },
 "lib/web/formatters/color.js": function(module, exports, require){
-var Transform = require("../../common/transform.js"), color = require("./util.js"), colors = {
-    debug: [ "cyan" ],
-    info: [ "purple" ],
-    warn: [ "yellow", !0 ],
-    error: [ "red", !0 ]
-}, logger = new Transform;
+var Transform = require('../../common/transform.js'),
+    color = require('./util.js');
 
-logger.write = function(e, t, n) {
-    var r = console.log;
-    console[t] && console[t].apply && (r = console[t], r.apply(console, [ "%c" + e + " %c" + t, color("gray"), color.apply(color, colors[t]) ].concat(n)));
-}, logger.pipe = function() {}, module.exports = logger;
+var colors = { debug: ['cyan'], info: ['purple' ], warn: [ 'yellow', true ], error: [ 'red', true ] },
+    logger = new Transform();
+
+logger.write = function(name, level, args) {
+  var fn = console.log;
+  if(console[level] && console[level].apply) {
+    fn = console[level];
+    fn.apply(console, [ '%c'+name+' %c'+level, color('gray'), color.apply(color, colors[level])].concat(args));
+  }
+};
+
+// NOP, because piping the formatted logs can only cause trouble.
+logger.pipe = function() { };
+
+module.exports = logger;
+
 },
 "lib/web/formatters/minilog.js": function(module, exports, require){
-var Transform = require("../../common/transform.js"), color = require("./util.js"), colors = {
-    debug: [ "gray" ],
-    info: [ "purple" ],
-    warn: [ "yellow", !0 ],
-    error: [ "red", !0 ]
-}, logger = new Transform;
+var Transform = require('../../common/transform.js'),
+    color = require('./util.js'),
+    colors = { debug: ['gray'], info: ['purple' ], warn: [ 'yellow', true ], error: [ 'red', true ] },
+    logger = new Transform();
 
-logger.write = function(e, t, n) {
-    var r = console.log;
-    t != "debug" && console[t] && (r = console[t]);
-    var i = [], s = 0;
-    if (t != "info") {
-        for (; s < n.length; s++) if (typeof n[s] != "string") break;
-        r.apply(console, [ "%c" + e + " " + n.slice(0, s).join(" "), color.apply(color, colors[t]) ].concat(n.slice(s)));
-    } else r.apply(console, [ "%c" + e, color.apply(color, colors[t]) ].concat(n));
-}, logger.pipe = function() {}, module.exports = logger;
+logger.write = function(name, level, args) {
+  var fn = console.log;
+  if(level != 'debug' && console[level]) {
+    fn = console[level];
+  }
+
+  var subset = [], i = 0;
+  if(level != 'info') {
+    for(; i < args.length; i++) {
+      if(typeof args[i] != 'string') break;
+    }
+    fn.apply(console, [ '%c'+name +' '+ args.slice(0, i).join(' '), color.apply(color, colors[level]) ].concat(args.slice(i)));
+  } else {
+    fn.apply(console, [ '%c'+name, color.apply(color, colors[level]) ].concat(args));
+  }
+};
+
+// NOP, because piping the formatted logs can only cause trouble.
+logger.pipe = function() { };
+
+module.exports = logger;
+
 }
 };
 r.m[1] = {
 };
 r.m[2] = {
 "index.js": function(module, exports, require){
-function M() {
-    this._events = {};
-}
-
+function M() { this._events = {}; }
 M.prototype = {
-    on: function(e, t) {
-        this._events || (this._events = {});
-        var n = this._events;
-        return (n[e] || (n[e] = [])).push(t), this;
-    },
-    removeListener: function(e, t) {
-        var n = this._events[e] || [], r;
-        for (r = n.length - 1; r >= 0 && n[r]; r--) (n[r] === t || n[r].cb === t) && n.splice(r, 1);
-    },
-    removeAllListeners: function(e) {
-        e ? this._events[e] && (this._events[e] = []) : this._events = {};
-    },
-    emit: function(e) {
-        this._events || (this._events = {});
-        var t = Array.prototype.slice.call(arguments, 1), n, r = this._events[e] || [];
-        for (n = r.length - 1; n >= 0 && r[n]; n--) r[n].apply(this, t);
-        return this;
-    },
-    when: function(e, t) {
-        return this.once(e, t, !0);
-    },
-    once: function(e, t, n) {
-        function r() {
-            n || this.removeListener(e, r), t.apply(this, arguments) && n && this.removeListener(e, r);
-        }
-        return t ? (r.cb = t, this.on(e, r), this) : this;
+  on: function(ev, cb) {
+    this._events || (this._events = {});
+    var e = this._events;
+    (e[ev] || (e[ev] = [])).push(cb);
+    return this;
+  },
+  removeListener: function(ev, cb) {
+    var e = this._events[ev] || [], i;
+    for(i = e.length-1; i >= 0 && e[i]; i--){
+      if(e[i] === cb || e[i].cb === cb) { e.splice(i, 1); }
     }
-}, M.mixin = function(e) {
-    var t = M.prototype, n;
-    for (n in t) t.hasOwnProperty(n) && (e.prototype[n] = t[n]);
-}, module.exports = M;
+  },
+  removeAllListeners: function(ev) {
+    if(!ev) { this._events = {}; }
+    else { this._events[ev] && (this._events[ev] = []); }
+  },
+  emit: function(ev) {
+    this._events || (this._events = {});
+    var args = Array.prototype.slice.call(arguments, 1), i, e = this._events[ev] || [];
+    for(i = e.length-1; i >= 0 && e[i]; i--){
+      e[i].apply(this, args);
+    }
+    return this;
+  },
+  when: function(ev, cb) {
+    return this.once(ev, cb, true);
+  },
+  once: function(ev, cb, when) {
+    if(!cb) return this;
+    function c() {
+      if(!when) this.removeListener(ev, c);
+      if(cb.apply(this, arguments) && when) this.removeListener(ev, c);
+    }
+    c.cb = cb;
+    this.on(ev, c);
+    return this;
+  }
+};
+M.mixin = function(dest) {
+  var o = M.prototype, k;
+  for (k in o) {
+    o.hasOwnProperty(k) && (dest.prototype[k] = o[k]);
+  }
+};
+module.exports = M;
+
 },
 "package.json": function(module, exports, require){
 module.exports = {

@@ -25,7 +25,7 @@ build-debug:
 	./node_modules/gluejs/bin/gluejs \
 	$(DEFAULTS) \
 	--include ./lib/web \
-	--command 'uglifyjs --beautify'
+	
 
 gzip:
 	cat dist/minilog.js | gzip | wc -c
